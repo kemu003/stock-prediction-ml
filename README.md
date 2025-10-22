@@ -3,7 +3,7 @@
 A simple web app that predicts the **next day's stock closing price** using **Linear Regression** on historical data from Yahoo Finance.
 
 ### 🚀 Live Demo
-👉 [View App](https://stock-prediction-ml.streamlit.app)
+👉 [View App](https://stock-prediction-ml-kevin.streamlit.app)
 
 ### ⚙️ Features
 - Fetches real-time stock data using `yfinance`
