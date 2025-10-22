@@ -1,149 +1,155 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
+import yfinance as yf
 from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import r2_score
-import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
+import numpy as np
+import plotly.graph_objects as go
 
-# -----------------------------
-# 🎨 Custom Streamlit Page Setup
-# -----------------------------
+# ============================
+# 🎨 Page Config & Custom CSS
+# ============================
 st.set_page_config(
-    page_title="📈 Stock Price Predictor",
+    page_title="📈 Stock Price Predictor (Machine Learning)",
     page_icon="📊",
-    layout="centered",
+    layout="wide",
 )
 
-# Inject Custom CSS
+# Custom CSS for Dark/Light Mode Readability
 st.markdown("""
     <style>
-        .main {
-            background-color: #f8f9fa;
+        body {
+            font-family: 'Inter', sans-serif;
         }
-        h1, h2, h3 {
-            color: #1a73e8;
+        h1, h2, h3, h4, h5, h6 {
+            color: var(--text-color, #FFFFFF);
         }
-        .stButton>button {
-            background-color: #1a73e8;
-            color: white;
-            font-weight: bold;
-            border-radius: 10px;
-            padding: 0.5rem 1rem;
+        .stApp {
+            background-color: var(--bg-color, #0E1117);
+            color: #FAFAFA;
         }
-        .stButton>button:hover {
-            background-color: #155ab6;
-            color: #fff;
+        /* Card style for sections */
+        .stCard {
+            background-color: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            margin-bottom: 20px;
         }
-        footer {visibility: hidden;}
+        /* Adjust for Light Mode */
+        @media (prefers-color-scheme: light) {
+            .stApp {
+                background-color: #FFFFFF;
+                color: #111111;
+            }
+            .stCard {
+                background-color: #F7F9FB;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            }
+        }
     </style>
 """, unsafe_allow_html=True)
 
-# -----------------------------
-# 🌍 Sidebar Navigation
-# -----------------------------
-page = st.sidebar.selectbox(
-    "Navigate",
-    ["🏠 Home", "📘 About", "🧠 Model Info"]
-)
+# ============================
+# Sidebar Navigation
+# ============================
+page = st.sidebar.selectbox("🌍 Navigate", ["Home", "About", "Model Info"])
 
-# -----------------------------
-# 🏠 HOME PAGE
-# -----------------------------
-if page == "🏠 Home":
+# ============================
+# PAGE: HOME
+# ============================
+if page == "Home":
     st.title("📈 Stock Price Predictor (Machine Learning)")
-    st.write(
-        "This app uses **historical stock data** to predict the next day's closing price "
-        "using a **Linear Regression model** trained on Open, High, Low, Close, and Volume data."
+    st.markdown(
+        "This app uses **historical stock data** to predict the **next day's closing price** "
+        "using a Linear Regression model trained on Open, High, Low, Close, and Volume data."
     )
 
-    # User input
-    symbol = st.text_input("Enter Stock Symbol (e.g. AAPL, MSFT, TSLA):").upper()
+    symbol = st.text_input("Enter Stock Symbol (e.g. AAPL, MSFT, TSLA):", "AAPL")
 
     if symbol:
         try:
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=180)
-            data = yf.download(symbol, start=start_date, end=end_date)
-
-            if data.empty:
-                st.warning(f"⚠️ No data found for {symbol}. Please check the stock symbol.")
+            df = yf.download(symbol, period="6mo", interval="1d")
+            if df.empty:
+                st.warning(f"No data found for {symbol}. Please check the symbol and try again.")
             else:
                 st.success(f"✅ Successfully fetched data for {symbol}")
 
-                # Prepare data
-                data['Prediction'] = data['Close'].shift(-1)
-                X = data[['Open', 'High', 'Low', 'Close', 'Volume']][:-1]
-                y = data['Prediction'][:-1]
+                # Prepare training data
+                df["Next Close"] = df["Close"].shift(-1)
+                df.dropna(inplace=True)
 
-                # Train model
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                X = df[["Open", "High", "Low", "Close", "Volume"]]
+                y = df["Next Close"]
+
                 model = LinearRegression()
-                model.fit(X_train, y_train)
+                model.fit(X, y)
 
                 # Predict next close
-                last_row = data[['Open', 'High', 'Low', 'Close', 'Volume']].iloc[-1].values.reshape(1, -1)
-                next_pred = model.predict(last_row)[0]
-                last_close = data['Close'].iloc[-1]
-                change_pct = ((next_pred - last_close) / last_close) * 100
+                last_row = df.iloc[-1][["Open", "High", "Low", "Close", "Volume"]].values.reshape(1, -1)
+                predicted_price = float(model.predict(last_row)[0])  # ensure it's float, not Series
+                last_close = float(df["Close"].iloc[-1])
+                change = predicted_price - last_close
+                pct_change = (change / last_close) * 100
 
-                st.subheader(f"Predicted Next Closing Price for {symbol}: ${next_pred:.2f}")
-                st.write(f"Change from last close (${last_close:.2f}): {change_pct:+.2f}%")
+                # Display results
+                st.markdown(f"### Predicted Next Closing Price for {symbol}: **${predicted_price:.2f}**")
+                st.markdown(f"Change from last close (${last_close:.2f}): **{pct_change:+.2f}%**")
 
-                # Plot
-                st.subheader("📊 Stock Price Trend (Last 6 Months)")
-                fig, ax = plt.subplots(figsize=(10, 4))
-                ax.plot(data.index, data['Close'], label="Actual Close", linewidth=2)
-                ax.set_xlabel("Date")
-                ax.set_ylabel("Price ($)")
-                ax.set_title(f"{symbol} Closing Price History")
-                ax.legend()
-                st.pyplot(fig)
+                # Chart
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=df.index, y=df["Close"],
+                    mode="lines",
+                    name="Close Price",
+                    line=dict(color="#00BFFF", width=2)
+                ))
+                fig.update_layout(
+                    title=f"📊 Stock Price Trend (Last 6 Months) - {symbol}",
+                    xaxis_title="Date",
+                    yaxis_title="Close Price (USD)",
+                    template="plotly_dark",
+                    height=400,
+                )
+                st.plotly_chart(fig, use_container_width=True)
 
-                st.subheader(f"📄 Raw Data for {symbol}")
-                st.dataframe(data.tail())
-
+                with st.expander(f"📂 Raw Data for {symbol}"):
+                    st.dataframe(df.tail(20))
         except Exception as e:
             st.error(f"⚠️ Error fetching or processing data: {e}")
 
-    st.markdown("---")
-    st.markdown("**Built by Kevin Kiplangat Mutai | Machine Learning Stock Prediction Demo 🚀**")
+# ============================
+# PAGE: ABOUT
+# ============================
+elif page == "About":
+    st.title("ℹ️ About This App")
+    st.markdown("""
+        This **Stock Price Predictor** was built by **Kevin Kiplangat Mutai** 🚀  
+        It uses real market data from Yahoo Finance and applies a **Linear Regression Model** 
+        to estimate the next day's closing price.
 
-# -----------------------------
-# 📘 ABOUT PAGE
-# -----------------------------
-elif page == "📘 About":
-    st.title("📘 About This App")
-    st.write("""
-    The **Stock Price Predictor** is a demo machine learning app that uses real stock data 
-    from Yahoo Finance to estimate future prices.
-    
-    - **Tech Stack:** Streamlit, Python, yFinance, scikit-learn  
-    - **Model:** Linear Regression  
-    - **Goal:** Demonstrate ML for financial forecasting.
-    
-    ⚙️ *This project was built and deployed by* **Kevin Kiplangat Mutai**.
+        **Technologies used:**
+        - Streamlit for the UI
+        - yFinance for stock data
+        - scikit-learn for the ML model
+        - Plotly for interactive charts
+
+        💡 *Disclaimer:* Predictions are for **educational purposes only** and should not be used for trading decisions.
     """)
 
-# -----------------------------
-# 🧠 MODEL INFO PAGE
-# -----------------------------
-elif page == "🧠 Model Info":
+# ============================
+# PAGE: MODEL INFO
+# ============================
+elif page == "Model Info":
     st.title("🧠 Model Information")
-    st.write("""
-    The app uses **Linear Regression**, a fundamental machine learning algorithm for regression tasks.
-    
-    **Model Details:**
-    - **Inputs:** Open, High, Low, Close, Volume
-    - **Output:** Next day's Close price
-    - **Training Split:** 80% Train, 20% Test
-    
-    **Formula:**  
-    `Close_next_day = a*Open + b*High + c*Low + d*Close + e*Volume + bias`
-    
-    Future versions may include:
-    - Random Forest Regression  
-    - LSTM Neural Networks for time series  
-    - Real-time prediction APIs
+    st.markdown("""
+        The prediction model uses a **Linear Regression** approach:
+        - **Features:** Open, High, Low, Close, Volume  
+        - **Target:** Next day’s Close price  
+        - **Training Data:** Last 6 months of stock history  
+
+        This simple model demonstrates how Machine Learning can be applied in financial analysis.
     """)
+
+    st.info("Future upgrade: Integrate LSTM for time-series learning and multi-day forecasting.")
+
+st.markdown("<hr><center>Built by <b>Kevin Kiplangat Mutai</b> | Machine Learning Stock Prediction Demo 🚀</center>", unsafe_allow_html=True)
