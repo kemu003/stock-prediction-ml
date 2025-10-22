@@ -1,103 +1,149 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import numpy as np
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
-from datetime import date, timedelta
+from sklearn.metrics import r2_score
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
 
-# ---------------------------
-# 🏷️ Page Configuration
-# ---------------------------
+# -----------------------------
+# 🎨 Custom Streamlit Page Setup
+# -----------------------------
 st.set_page_config(
     page_title="📈 Stock Price Predictor",
     page_icon="📊",
-    layout="centered"
+    layout="centered",
 )
 
-# ---------------------------
-# 🎨 App Header
-# ---------------------------
-st.title("📈 Stock Price Predictor (Machine Learning)")
+# Inject Custom CSS
 st.markdown("""
-This app uses **historical stock data** to predict the **next day's closing price**
-using a **Linear Regression model** trained on Open, High, Low, Close, and Volume data.
-""")
+    <style>
+        .main {
+            background-color: #f8f9fa;
+        }
+        h1, h2, h3 {
+            color: #1a73e8;
+        }
+        .stButton>button {
+            background-color: #1a73e8;
+            color: white;
+            font-weight: bold;
+            border-radius: 10px;
+            padding: 0.5rem 1rem;
+        }
+        .stButton>button:hover {
+            background-color: #155ab6;
+            color: #fff;
+        }
+        footer {visibility: hidden;}
+    </style>
+""", unsafe_allow_html=True)
 
-# ---------------------------
-# 🧠 Input Section
-# ---------------------------
-symbol = st.text_input("Enter Stock Symbol (e.g. AAPL, MSFT, TSLA):", "AAPL").upper()
+# -----------------------------
+# 🌍 Sidebar Navigation
+# -----------------------------
+page = st.sidebar.selectbox(
+    "Navigate",
+    ["🏠 Home", "📘 About", "🧠 Model Info"]
+)
 
-# ---------------------------
-# 📦 Fetch Data
-# ---------------------------
-if st.button("Predict"):
-    try:
-        end_date = date.today()
-        start_date = end_date - timedelta(days=365 * 2)  # 2 years of data
+# -----------------------------
+# 🏠 HOME PAGE
+# -----------------------------
+if page == "🏠 Home":
+    st.title("📈 Stock Price Predictor (Machine Learning)")
+    st.write(
+        "This app uses **historical stock data** to predict the next day's closing price "
+        "using a **Linear Regression model** trained on Open, High, Low, Close, and Volume data."
+    )
 
-        data = yf.download(symbol, start=start_date, end=end_date)
+    # User input
+    symbol = st.text_input("Enter Stock Symbol (e.g. AAPL, MSFT, TSLA):").upper()
 
-        if data.empty:
-            st.error(f"❌ No data found for {symbol}. Please check the symbol and try again.")
-        else:
-            st.success(f"✅ Successfully fetched data for {symbol}")
+    if symbol:
+        try:
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=180)
+            data = yf.download(symbol, start=start_date, end=end_date)
 
-            # ---------------------------
-            # 🧮 Prepare Data
-            # ---------------------------
-            data = data[['Open', 'High', 'Low', 'Close', 'Volume']]
-            data['Target'] = data['Close'].shift(-1)
-            data = data.dropna()
+            if data.empty:
+                st.warning(f"⚠️ No data found for {symbol}. Please check the stock symbol.")
+            else:
+                st.success(f"✅ Successfully fetched data for {symbol}")
 
-            X = data[['Open', 'High', 'Low', 'Close', 'Volume']]
-            y = data['Target']
+                # Prepare data
+                data['Prediction'] = data['Close'].shift(-1)
+                X = data[['Open', 'High', 'Low', 'Close', 'Volume']][:-1]
+                y = data['Prediction'][:-1]
 
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+                # Train model
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                model = LinearRegression()
+                model.fit(X_train, y_train)
 
-            # ---------------------------
-            # 🤖 Train Model
-            # ---------------------------
-            model = LinearRegression()
-            model.fit(X_train, y_train)
+                # Predict next close
+                last_row = data[['Open', 'High', 'Low', 'Close', 'Volume']].iloc[-1].values.reshape(1, -1)
+                next_pred = model.predict(last_row)[0]
+                last_close = data['Close'].iloc[-1]
+                change_pct = ((next_pred - last_close) / last_close) * 100
 
-            # ---------------------------
-            # 🔮 Predict Next Day
-            # ---------------------------
-            latest_data = data.iloc[-1][['Open', 'High', 'Low', 'Close', 'Volume']].values.reshape(1, -1)
-            predicted_price = model.predict(latest_data)
-            predicted_price = float(predicted_price[0])  # ✅ Convert to float
+                st.subheader(f"Predicted Next Closing Price for {symbol}: ${next_pred:.2f}")
+                st.write(f"Change from last close (${last_close:.2f}): {change_pct:+.2f}%")
 
-            last_close = float(data['Close'].iloc[-1])  # ✅ Convert to float
-            change = ((predicted_price - last_close) / last_close) * 100
+                # Plot
+                st.subheader("📊 Stock Price Trend (Last 6 Months)")
+                fig, ax = plt.subplots(figsize=(10, 4))
+                ax.plot(data.index, data['Close'], label="Actual Close", linewidth=2)
+                ax.set_xlabel("Date")
+                ax.set_ylabel("Price ($)")
+                ax.set_title(f"{symbol} Closing Price History")
+                ax.legend()
+                st.pyplot(fig)
 
-            # ---------------------------
-            # 📊 Display Results
-            # ---------------------------
-            st.subheader(f"Predicted Next Closing Price for {symbol}: ${predicted_price:.2f}")
-            st.write(f"Change from last close (${last_close:.2f}): {change:+.2f}%")
+                st.subheader(f"📄 Raw Data for {symbol}")
+                st.dataframe(data.tail())
 
-            # ---------------------------
-            # 📈 Plot Stock Trend
-            # ---------------------------
-            st.subheader("📊 Stock Price Trend (Last 6 Months)")
-            last_6_months = data.tail(180)
-            st.line_chart(last_6_months['Close'])
+        except Exception as e:
+            st.error(f"⚠️ Error fetching or processing data: {e}")
 
-            # ---------------------------
-            # 📋 Show Data
-            # ---------------------------
-            with st.expander(f"Raw Data for {symbol}"):
-                st.dataframe(data.tail(10))
+    st.markdown("---")
+    st.markdown("**Built by Kevin Kiplangat Mutai | Machine Learning Stock Prediction Demo 🚀**")
 
-    except Exception as e:
-        st.error(f"⚠️ Error fetching or processing data: {e}")
+# -----------------------------
+# 📘 ABOUT PAGE
+# -----------------------------
+elif page == "📘 About":
+    st.title("📘 About This App")
+    st.write("""
+    The **Stock Price Predictor** is a demo machine learning app that uses real stock data 
+    from Yahoo Finance to estimate future prices.
+    
+    - **Tech Stack:** Streamlit, Python, yFinance, scikit-learn  
+    - **Model:** Linear Regression  
+    - **Goal:** Demonstrate ML for financial forecasting.
+    
+    ⚙️ *This project was built and deployed by* **Kevin Kiplangat Mutai**.
+    """)
 
-# ---------------------------
-# 👤 Footer
-# ---------------------------
-st.markdown("""
----
-Built by **Kevin Kiplangat Mutai** | Machine Learning Stock Prediction Demo 🚀
-""")
+# -----------------------------
+# 🧠 MODEL INFO PAGE
+# -----------------------------
+elif page == "🧠 Model Info":
+    st.title("🧠 Model Information")
+    st.write("""
+    The app uses **Linear Regression**, a fundamental machine learning algorithm for regression tasks.
+    
+    **Model Details:**
+    - **Inputs:** Open, High, Low, Close, Volume
+    - **Output:** Next day's Close price
+    - **Training Split:** 80% Train, 20% Test
+    
+    **Formula:**  
+    `Close_next_day = a*Open + b*High + c*Low + d*Close + e*Volume + bias`
+    
+    Future versions may include:
+    - Random Forest Regression  
+    - LSTM Neural Networks for time series  
+    - Real-time prediction APIs
+    """)
